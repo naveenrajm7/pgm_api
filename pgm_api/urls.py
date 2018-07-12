@@ -19,5 +19,8 @@ from pgm_app import views
 
 urlpatterns = [
     path('admin/', admin.site.urls),
-    path('describe/', views.describe)
+    path('describe/', views.describe),
+    path('example_view/', views.example_view),
+    path('infer/', views.infer)
+
 ]

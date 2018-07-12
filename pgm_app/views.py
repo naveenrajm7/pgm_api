@@ -1,9 +1,13 @@
 from django.shortcuts import render
 from django.http import Http404
+
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view
+from rest_framework.decorators import parser_classes
+from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
 from rest_framework import status
+
 from django.http import JsonResponse
 from django.core import serializers
 from django.conf import settings
@@ -11,10 +15,25 @@ import json
 
 from pgmpy.factors.discrete import TabularCPD
 from pgmpy.models import BayesianModel
+from pgmpy.factors import factor_product
+from pgmpy.inference.base import Inference
+import itertools
+
 # Create your views here.
 
+@api_view(['POST'])
+@parser_classes((JSONParser,))
+def example_view(request, format=None):
+    """
+    A view that can accept POST requests with JSON content.
+    """
+
+    return Response({'received data': request.data.get('model'), 'param': request.data.get('observe')+request.data.get('state')})
+
+
+
 @api_view(["POST"])
-def describe(model_name):
+def describe(request):
     '''description: Describe the given bayesian model
     Parameters
         ----------
@@ -22,16 +41,15 @@ def describe(model_name):
         returns: Input and Output random variables
     '''
     try:
-        # print(type(model_name))
-        # found = False
-        # for key in model_list.keys():
-        #     if key == model_name:
-        #         model = model_list[key]
-        #         found = True
-        #
-        # if not found:
-        #     return JsonResponse("Model not found", safe=False)
-        model = student_model
+        found = False
+        for key in model_list.keys():
+            if key == request.data.get('model'):
+                model = model_list[key]
+                found = True
+
+        if not found:
+            return JsonResponse("Model not found", safe=False)
+
         # identifying root and leaf of model
         root = []
         for x in model.in_degree:
@@ -52,6 +70,58 @@ def describe(model_name):
     except ValueError as e:
         return Response(e.args[0],status.HTTP_400_BAD_REQUEST)
 
+
+@api_view(["POST"])
+def explain(request):
+    '''description: Explain the given bayesian model
+    Parameters
+        ----------
+        model: pgmpy Bayesian Object
+        returns: All possible states of final random variable
+    '''
+    # to be done
+    pass
+
+
+@api_view(["POST"])
+def infer(request):
+    '''description: query the given bayesian model
+    Parameters
+        ----------
+        model: pgmpy Bayesian Object
+        returns: result of the given query
+    '''
+    class SimpleInference(Inference):
+        ''' custom inference'''
+        def query(self, var, evidence):
+            # self.factors is a dict of the form of {node: [factors_involving_node]}
+            factors_list = set(itertools.chain(*self.factors.values()))
+            product = factor_product(*factors_list)
+            reduced_prod = product.reduce(evidence, inplace=False)
+            reduced_prod.normalize()
+            var_to_marg = set(self.model.nodes()) - set(var) - set([state[0] for state in evidence])
+            marg_prod = reduced_prod.marginalize(var_to_marg, inplace=False)
+            return marg_prod
+
+    found = False
+    for key in model_list.keys():
+        if key == request.data.get('model'):
+            model = model_list[key]
+            found = True
+
+    if not found:
+        return JsonResponse("Model not found", safe=False)
+
+    res = request.data.get('res')
+    observe = request.data.get('observe')
+    state = request.data.get('state')
+
+    # infer object ,
+    infer = SimpleInference(model)
+    # working for only one evidence
+    result = infer.query(var=res, evidence=[(observe[0], state[0])]).values[1]
+
+    return JsonResponse(request.data.get('model') +"'s "+str(res)+" probabitlity is "+str(result), safe=False)
 
 # creating bayesian objects
 difficulty_cpd = TabularCPD(variable='D',
@@ -92,5 +162,61 @@ student_model = BayesianModel([('D', 'G'),('I', 'G'), ('I', 'S'), ('G', 'L')])
 student_model.add_cpds(difficulty_cpd, intelligence_cpd, sat_cpd, grade_cpd, letter_cpd)
 
 
+gas_cpd = TabularCPD(variable='G',
+                     variable_card=2,
+                     values=[[.2, 0.01],
+                             [.8, 0.99]],
+                     evidence=['F'],
+                     evidence_card=[2])
+
+fraud_cpd = TabularCPD(variable='F',
+                       variable_card=2,
+                       values=[[.1, .9]])
+
+jewelery_cpd = TabularCPD(variable='J',
+                         variable_card=2,
+                         values=[[.2, .95, .05, .95, .04, .95, .02, .95, .02, .95, .1, .95],
+                        [.8, .05, .95, .05, .96, .05, .98, .05, .98, .05, .9, .05]],
+                         evidence=['A', 'S', 'F'],
+                         evidence_card=[3, 2, 2])
+
+age_cpd = TabularCPD(variable='A',
+                    variable_card=3,
+                    values=[[0.25, 0.40, 0.35]])
+
+sex_cpd = TabularCPD(variable='S',
+                    variable_card=2,
+                    values=[[0.5, 0.5]])
+
+fraud_model = BayesianModel([('F', 'J'),('F', 'G'), ('A', 'J'), ('S', 'J')])
+fraud_model.add_cpds(jewelery_cpd, fraud_cpd, age_cpd, sex_cpd, gas_cpd)
+
+
+credit_rating_cpd = TabularCPD(variable='CR', variable_card=4,
+                values=[[0.85, 0.04, 0.12, 0.02, 0.13, 0.01],
+                        [0.1, 0.07, 0.65, 0.07, 0.2, 0.04],
+                        [0.04, 0.75, 0.15, 0.25, 0.45, 0.25],
+                        [0.01, 0.14, 0.08, 0.66, 0.22, 0.7]],
+                evidence=['OL', 'PH'], evidence_card=[3, 2])
+
+interest_rate_cpd = TabularCPD(variable='IR', variable_card=3,
+                values=[[0.01, 0.05, 0.12, 0.02, 0.05, 0.15, 0.3, 0.4, 0.55, 0.57, 0.83, 0.94],
+                        [0.09, 0.7, 0.7, 0.23, 0.4, 0.45, 0.6, 0.55, 0.4, 0.4, 0.15, 0.05],
+                        [0.9, 0.25, 0.18, 0.75, 0.55, 0.4, 0.1, 0.05, 0.05, 0.03, 0.02, 0.01]],
+                evidence=['CR', 'IL'], evidence_card=[4, 3])
+
+Outstanding_loan_cpd = TabularCPD(variable='OL', variable_card=3, values=[[0.15, 0.55, 0.3]])
+
+Payment_history_cpd = TabularCPD(variable='PH', variable_card=2, values=[[0.8, 0.2]])
+
+Income_level_cpd = TabularCPD(variable='IL', variable_card=3, values=[[0.1, 0.6, 0.3]])
+
+credit_approval_model = BayesianModel([('OL', 'CR'),
+                             ('PH', 'CR'),
+                             ('IL', 'IR'),
+                             ('CR', 'IR')])
+
+credit_approval_model.add_cpds(credit_rating_cpd, interest_rate_cpd, Outstanding_loan_cpd, Payment_history_cpd, Income_level_cpd)
+
 # model list , name-> object
-model_list = { "student":student_model }
+model_list = { "student":student_model, "fraud":fraud_model, "credit":credit_approval_model}
