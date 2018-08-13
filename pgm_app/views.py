@@ -4,8 +4,10 @@ from django.http import Http404
 from rest_framework.views import APIView
 from rest_framework.decorators import api_view
 from rest_framework.decorators import parser_classes
+from rest_framework.decorators import renderer_classes
 from rest_framework.parsers import JSONParser
 from rest_framework.response import Response
+from rest_framework.renderers import JSONRenderer
 from rest_framework import status
 
 from django.http import JsonResponse
@@ -31,6 +33,18 @@ def example_view(request, format=None):
     return Response({'received data': request.data.get('model'), 'param': request.data.get('observe')+request.data.get('state')})
 
 
+@api_view(["GET"])
+@renderer_classes((JSONRenderer,))
+def list(request, format = None):
+    '''description: List all available models
+    Parameters
+        ----------
+        Nil
+    '''
+    return_list = model_list.keys()
+    content = { 'models' : return_list }
+    return Response(content)
+
 
 @api_view(["POST"])
 def describe(request):
@@ -45,10 +59,13 @@ def describe(request):
         for key in model_list.keys():
             if key == request.data.get('model'):
                 model = model_list[key]
+                key1=key
                 found = True
 
         if not found:
             return JsonResponse("Model not found", safe=False)
+
+
 
         # identifying root and leaf of model
         root = []
@@ -65,8 +82,66 @@ def describe(request):
                 #to remove leaf nodes for which some of the root nodes have no influence
                 if str(model.is_active_trail(i,j))=='False':
                     leaf.remove(j)
+        Root=[]
+        Leaf=[]
+        m=globals()[key1]
+        for r in root:
+            for r1 in m:
+                if r==r1:
+                    Root.append(m[r])
+        for l in leaf:
+            for l1 in m:
+                if l==l1:
+                    Leaf.append(m[l])
+        if len(Leaf)>1:
+            op="the Leaves"
+        else:
+            op="the  Leaf"
+        if len(Root)>1:
+            op1="the Roots"
+        else:
+            op1="the Root"
 
-        return JsonResponse("Model has "+str(root)+" as root and "+str(leaf)+" as leaf", safe=False)
+
+        s=""
+        last=" states,"
+        rlen=len(root)
+        for r,r1 in zip(root,Root):
+
+            length=model.get_cardinality(r)
+            if rlen!=1:
+                if rlen==2:
+                    last=" states"
+                s+=str(r1)+" has "+ str(length) +last
+            else:
+                s+=first+str(r1)+" has "+ str(length) +last
+            rlen=rlen-1
+            if rlen==1:
+                first=" and "
+                last=" states."
+
+        s2=""
+        last2=" states,"
+        leaflen=len(leaf)
+        for l,l1 in zip(leaf,Leaf):
+
+            length2=model.get_cardinality(l)
+            if leaflen==1:
+                last2=" states"
+                first=""
+            if leaflen!=1:
+                if leaflen==2:
+                    last2=" states"
+                s2+=str(l1)+" has "+ str(length2) +last2
+            else:
+                s2+=first+str(l1)+" has "+ str(length2) +last2
+            leaflen=leaflen-1
+            if leaflen==1:
+                first=" and "
+                last=" states."
+
+
+        return JsonResponse("The "+key1 +" model "  " has "+str(Root).strip('[]')+" as " +op1+ " and "+str(Leaf).strip('[]')+" as "+op+". " +s+s2, safe=False)
     except ValueError as e:
         return Response(e.args[0],status.HTTP_400_BAD_REQUEST)
 
@@ -121,7 +196,7 @@ def infer(request):
     # working for only one evidence
     result = infer.query(var=res, evidence=[(observe[0], state[0])]).values[1]
 
-    return JsonResponse(request.data.get('model') +"'s "+str(res)+" probabitlity is "+str(result), safe=False)
+    return JsonResponse(request.data.get('model') +"'s "+str(res)+" probabitlity is "+convert_to_num(result), safe=False)
 
 # creating bayesian objects
 difficulty_cpd = TabularCPD(variable='D',
@@ -220,3 +295,17 @@ credit_approval_model.add_cpds(credit_rating_cpd, interest_rate_cpd, Outstanding
 
 # model list , name-> object
 model_list = { "student":student_model, "fraud":fraud_model, "credit":credit_approval_model}
+
+student={"L":"Letter","D":"Difficulty","G":"Grade","I":"Intelligence","S":"SAT Scores"}
+
+fraud={"F":"Fraud","J":"Jewellery","A":"Age","S":"Sex"}
+
+credit={"OL":"Outstanding Loan","PH":"Payment History","IL":"Income level","IR":"Interest Rate"}
+
+def convert_to_num(probabitlity_value):
+    if probabitlity_value <= .3:
+        return "Low"
+    elif probabitlity_value > .3 and probabitlity_value <= .7:
+        return "Medium"
+    else:
+        return "High"
