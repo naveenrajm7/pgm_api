@@ -19,6 +19,9 @@ from pgmpy.factors.discrete import TabularCPD
 from pgmpy.models import BayesianModel
 from pgmpy.factors import factor_product
 from pgmpy.inference.base import Inference
+
+from networkx.readwrite import json_graph
+
 import itertools
 
 # Create your views here.
@@ -45,6 +48,33 @@ def list(request, format = None):
     content = { 'models' : return_list }
     return Response(content)
 
+
+@api_view(["POST"])
+@renderer_classes((JSONRenderer,))
+def get_json(request):
+    ''' description: json format of given bayesian model
+    Parameters
+        ----------
+        model: pgmpy Bayesian Object
+        returns: json
+    '''
+    try:
+        found = False
+        for key in model_list.keys():
+            if key == request.data.get('model'):
+                model = model_list[key]
+                key1=key
+                found = True
+
+        if not found:
+            return JsonResponse("Model not found", safe=False)
+
+        json_content = json_graph.node_link_data(model)
+        return Response(json_content)
+
+    except ValueError as e:
+        return Response(e.args[0],status.HTTP_400_BAD_REQUEST)
+        
 
 @api_view(["POST"])
 def describe(request):

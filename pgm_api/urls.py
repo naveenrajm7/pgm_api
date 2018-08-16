@@ -22,6 +22,7 @@ urlpatterns = [
     path('list/', views.list),
     path('describe/', views.describe),
     path('example_view/', views.example_view),
-    path('infer/', views.infer)
+    path('infer/', views.infer),
+    path('get_json/', views.get_json)
 
 ]
