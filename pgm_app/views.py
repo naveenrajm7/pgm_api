@@ -74,7 +74,7 @@ def get_json(request):
 
     except ValueError as e:
         return Response(e.args[0],status.HTTP_400_BAD_REQUEST)
-        
+
 
 @api_view(["POST"])
 def describe(request):
@@ -221,12 +221,17 @@ def infer(request):
     observe = request.data.get('observe')
     state = request.data.get('state')
 
+
+    # giving evidence (array of tuples)
+    evidence_array = [(x,y) for x,y in zip(observe, state)]
+
+
     # infer object ,
     infer = SimpleInference(model)
     # working for only one evidence
-    result = infer.query(var=res, evidence=[(observe[0], state[0])]).values[1]
+    result = infer.query(var=res, evidence= evidence_array).values[1]
 
-    return JsonResponse(request.data.get('model') +"'s "+str(res)+" probabitlity is "+convert_to_num(result), safe=False)
+    return JsonResponse(request.data.get('model') +"'s "+str(res)+" probabitlity is "+str(result), safe=False)
 
 # creating bayesian objects
 difficulty_cpd = TabularCPD(variable='D',
